@@ -32,7 +32,7 @@ If your sample names are in sample##_{RNA, DNA} format, you can use the followin
    
         cat sampletab/${pfx}.3.txt | mlr -tsv cut -o -f libname,fq_fwd,fq_rev,umi_len > sampletab/${pfx}.input.txt
 
-2. Load R (currently tested with R/4.2.0).
+2. Load R (currently tested with R/4.2.0). Check that your $PATH lists the bin associated with the conda environment first (i.e., `PATH=/home/user/miniconda3/envs/mpraline/bin:$PATH`). If not, make it so or else none of the packages you've installed will work when python is invoked.
 3. If you don't have a server profile (`slurmgl`) created for snakemake, create one with the following command:
 
         mkdir slurmgl
@@ -46,7 +46,6 @@ Make sure to change `INSERT_ACCOUNT` with the correct server billing account or 
 4. Run the pipeline with the following command:
 
         snakemake -s /path/to/bc_count.snake \
-            --unlock \
             --printshellcmds \
             --cores 32 \
             --jobs 1000 --rerun-incomplete \
@@ -62,6 +61,6 @@ Make sure to change `INSERT_ACCOUNT` with the correct server billing account or 
                 outdir=bc_count \
                 scripts=/path/to/scripts
 
-If you want to run the pipeline in the background (so you can sign out and have it run in the background), prefix with `nohup` and append with `&`.
+If you want to run the pipeline in the background (so you can sign out and have it run in the background), prefix with `nohup` and append with `&`. If you need to rerun the pipeline, you will need to unlock the directory with the flag `--unlock`, then re-run. 
 
 4. Once the pipeline completes, `done.txt` will be created in the top directory.

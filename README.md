@@ -18,17 +18,17 @@ Steps to run the pipeline
 2. In the subdirectory `sampletab`, create a sample metadata table containing the variables `libname`, `fq_fwd`, `fq_rev`, and `umi_len`. 
 If your sample names are in sample##_{RNA, DNA} format, you can use the following code to complete required columns `fq_fwd`, `fq_rev`, and `umi_len`.
 
-    pfx=YYYYMMDD
+    `pfx=YYYYMMDD`
 
-    muchly addcol \
+    `muchly addcol \
        -i sampletab/${pfx}.txt \
        -o sampletab/${pfx}.2.txt \
        -t \
        "fq_fwd:/full/path/to/project/in_fq/{{libname}}.r1.fq.gz" \
-       "fq_rev:/full/path/to/project/in_fq/{{libname}}.r2.fq.gz"
+       "fq_rev:/full/path/to/project/in_fq/{{libname}}.r2.fq.gz"`
 
-    cat sampletab/${pfx}.2.txt | mlr --tsv put '$umi_len = (sub($libname, "^[^_]+_(DNA)$", "13") == "13") ? "13" : ""' > sampletab/${pfx}.3.txt
-    cat sampletab/${pfx}.3.txt | mlr -tsv cut -o -f libname,fq_fwd,fq_rev,umi_len > sampletab/${pfx}.input.txt
+    `cat sampletab/${pfx}.2.txt | mlr --tsv put '$umi_len = (sub($libname, "^[^_]+_(DNA)$", "13") == "13") ? "13" : ""' > sampletab/${pfx}.3.txt`
+    `cat sampletab/${pfx}.3.txt | mlr -tsv cut -o -f libname,fq_fwd,fq_rev,umi_len > sampletab/${pfx}.input.txt`
 
 2. Load R (currently tested with R/4.2.0).
 3. If you don't have a server profile (`slurmgl`) created for snakemake, create one with the following command:

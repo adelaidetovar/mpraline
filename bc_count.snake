@@ -1,0 +1,275 @@
+# process and perform bc counting
+
+# eg
+# from your data directory:
+#
+#  
+# snakemake -s .....
+#    --printshellcmds \
+#    --cores 24 \
+#    --config \
+#        sample_table=sample_key.txt \
+#        prefix="" \
+#        outdir=process \
+#        py2_environment="mypy2" \
+
+
+# config values you must specify:
+#   sample_table - must be a file w/ columns: libname, fq_fwd, fq_rev, umi_len
+#   outdir
+#   scripts
+
+# optional config values
+
+
+import os.path as op
+import os
+import pandas as pd
+
+########
+
+assert 'outdir' in config, 'must specify output directory'
+assert 'scripts' in config, 'must specific scripts directory'
+
+OUT_DIR = config['outdir']
+
+default_umi_len=15
+
+########
+# load and check sample table.
+
+
+assert 'sample_table' in config, 'must specify a sample table'
+
+tblSamples = pd.read_table( config['sample_table'] )
+
+for col in ['libname','fq_fwd', 'fq_rev','umi_len']:
+    assert col in tblSamples, 'sample table must define column %s'%col
+
+assert len(set(tblSamples['libname'])) == tblSamples.shape[0], 'all libname entries must be unique'
+
+lLibs = tblSamples['libname'].unique()
+
+tblSamples = tblSamples.set_index( 'libname',drop=False )
+
+########
+# expected output files
+
+waterfall_plot = expand( op.join( OUT_DIR, 'plots/{libname}.waterfall.png'), libname=lLibs )
+bc_clust = expand( op.join( OUT_DIR, 'bc/{libname}.bc_cluster.txt'), libname=lLibs )
+stats = expand( op.join( OUT_DIR, 'bc/bc_stats.txt'), libname=lLibs )
+summ = expand( op.join(OUT_DIR, 'bc/summary_table.txt'), libname=lLibs )
+fintab = expand( op.join(OUT_DIR, 'read_stats.txt'), libname=lLibs )
+
+l_out =  waterfall_plot + bc_clust + stats + summ + fintab
+
+rule all:
+    input:
+        l_out
+    output:
+        'done.txt'
+    resources:
+        mem_per_cpu="1gb", 
+        cpus="1", 
+        time="1:00"
+    shell:
+        """
+        touch done.txt
+        """
+
+########
+
+# extract BC and UMI
+
+rule bc_clip:
+    input:
+        fq_fwd=lambda wc: tblSamples.loc[ wc.libname ][ 'fq_fwd' ],
+        fq_rev=lambda wc: tblSamples.loc[ wc.libname ][ 'fq_rev' ]
+    output:
+        fq_fwd_clip = op.join( OUT_DIR, 'clip/{libname}.clip.r1.gz'),
+        fq_rev_clip = op.join( OUT_DIR, 'clip/{libname}.clip.r2.gz')
+    log:
+        op.join( OUT_DIR, 'clip/{libname}.clip.log' )
+    #threads: 8
+    resources:
+        mem_per_cpu="5gb", 
+        cpus="16", 
+        time="00:20:00"
+    shell: 
+        """
+        cutadapt \
+            -g CCGGTACTGTTGGTAAAGAACCTCTAGA...TCGGCNGCCC \
+            -g CCGGTACTGTTGGTAAAGAACGGAAGA...TCGGCNGCCC \
+            -g CCGGTACTGTTGGTAAAGAACCACCAGA...TCGGCNGCCC \
+            -e 0.1 -O 25 \
+            -j 10 \
+            --minimum-length 10 \
+            --discard-untrimmed \
+            -q 10 \
+            --pair-filter=first \
+            -o {output.fq_fwd_clip} \
+            -p {output.fq_rev_clip} \
+            {input.fq_fwd} \
+            {input.fq_rev} > {log}
+        """
+
+# extract UMI and tag read names
+
+rule extract_umi:
+    input:
+        fq_fwd_clip = rules.bc_clip.output.fq_fwd_clip,
+        fq_rev_clip = rules.bc_clip.output.fq_rev_clip
+    output:
+        fq_fwd_umi = op.join( OUT_DIR, 'umi/{libname}.umi.r1.gz'),
+        fq_rev_umi = op.join( OUT_DIR, 'umi/{libname}.umi.r2.gz')
+    log:
+        op.join( OUT_DIR, 'umi/{libname}.umi.log' )
+    params:
+        umi_len=lambda wc: int(default_umi_len) if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else int(tblSamples.loc[ wc.libname ][ 'umi_len' ])
+    #threads: 8
+    resources:
+        mem_per_cpu="5gb", 
+        cpus="16", 
+        time="4:00:00"
+    shell:
+        """
+        umi_tools extract \
+            --stdin {input.fq_rev_clip} \
+            --stdout {output.fq_rev_umi} \
+            --extract-method regex \
+            --bc-pattern='(?P<umi_1>.{{{params.umi_len}}})(?P<discard_1>GCTCCTCGCCCTTGCTCA|TCGCCCTTGCTCACCATG){{s<=2}}' \
+            --read2-in {input.fq_fwd_clip} \
+            --read2-out={output.fq_fwd_umi} \
+            -L {log}
+        """
+
+# parse UMI and BC
+
+rule prep_umibc:
+    input:
+        fq_fwd_umi = rules.extract_umi.output.fq_fwd_umi
+    output:
+        sepumi = op.join( OUT_DIR, 'umi_bc/{libname}.umi.txt'),
+        sepbc = op.join( OUT_DIR, 'umi_bc/{libname}.bc.txt'),
+        umibc = op.join( OUT_DIR, 'umi_bc/{libname}.umibc.txt' )
+    resources:
+        mem_per_cpu="5gb", 
+        cpus="10", 
+        time="1:00:00"
+    shell:
+        """
+        seqtk seq -a {input.fq_fwd_umi} | \
+            tee >(awk 'NR % 2 == 1' | grep -Po '(?<=_)[ATGCN]*' > {output.sepumi}) \
+                >(awk 'NR % 2 == 0' > {output.sepbc})
+            paste -d "" {output.sepumi} {output.sepbc} > {output.umibc}
+        """
+
+# cluster and deduplicate UMIs
+
+rule starcode_umi:
+    input:  
+        umibc = rules.prep_umibc.output.umibc
+    output:
+        starumi = op.join( OUT_DIR, 'umi_bc/{libname}.starumi' )
+    params:
+        umi_len=lambda wc: int(default_umi_len) if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else int(tblSamples.loc[ wc.libname ][ 'umi_len' ])
+    resources:
+        mem_per_cpu="5gb", 
+        cpus="30", 
+        time="4:00:00"
+    shell:
+        """
+        /home/tovar/starcode/starcode-umi \
+            --starcode-path /home/tovar/starcode/starcode \
+            --umi-len {params.umi_len} \
+            {input.umibc} > {output.starumi}
+        """
+
+# cluster BCs
+
+rule starcode_bc:
+    input:
+        starumi = rules.starcode_umi.output.starumi
+    output:
+        bc_clust = op.join( OUT_DIR, 'bc/{libname}.bc_cluster.txt' )
+    params:
+        umi_len=lambda wc: int(default_umi_len) if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else int(tblSamples.loc[ wc.libname ][ 'umi_len' ])
+    resources:
+        mem_per_cpu=lambda wc: "5gb" if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else "8gb",
+        cpus="30", 
+        time=lambda wc: "00:20:00" if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else "01:00:00"
+    shell:
+        """
+        cat {input.starumi} | awk '{{print substr($1, {params.umi_len}+1, 20)}}' | \
+        starcode \
+            -t 24 \
+            --print-clusters \
+            -d 2 \
+            -i /dev/stdin \
+            -o {output.bc_clust}
+        """
+
+# make waterfall plots
+
+rule waterfall_plot:
+    input:
+        bc_clust = rules.starcode_bc.output.bc_clust
+    output:
+        plot = op.join( OUT_DIR, 'plots/{libname}.waterfall.png' )
+    params:
+        script_dir = config['scripts']
+    resources:
+        mem_per_cpu=lambda wc: "5gb" if pd.isna(tblSamples.loc[ wc.libname ][ 'umi_len']) or tblSamples.loc[ wc.libname ][ 'umi_len' ] == "" else "15gb",
+        cpus="1",
+        time="00:10:00"
+    shell:
+        """
+        python {params.script_dir}/plot_tag_count_histos.py \
+            --linCountHisto {input.bc_clust} \
+            --lNames {wildcards.libname} \
+            --annotMaxY  \
+            --outPlot {output.plot}
+        """
+
+# make final summary table for barcodes
+
+rule barcode_tab:
+    input:
+        bc_clust = expand( op.join( OUT_DIR, 'bc/{libname}.bc_cluster.txt'), libname=lLibs )
+    output:
+        stats = op.join( OUT_DIR, 'bc/bc_stats.txt' ),
+        summ = op.join( OUT_DIR, 'bc/summary_table.txt' )
+    params:
+        script_dir = config['scripts'],
+        in_clust = lambda wildcards, input: ','.join(input)
+    resources:
+        mem_per_cpu="20gb",
+        cpus="1",
+        time="00:45:00"
+    shell:
+        """
+        Rscript {params.script_dir}/summarize_bc.R -in {params.in_clust} -stats {output.stats} -summ {output.summ}
+        """
+
+
+# make summary table of read stats across steps
+
+rule read_stats:
+    input:
+        bc_clust = expand( op.join( OUT_DIR, 'bc/{libname}.bc_cluster.txt'), libname=lLibs )
+    output:
+        fintab = op.join( OUT_DIR, 'read_stats.txt' ),
+    params:
+        script_dir = config['scripts'],
+        in_clip = op.join( OUT_DIR, 'clip/'),
+        in_umi = op.join( OUT_DIR, 'umi/'),
+        in_umibc = op.join( OUT_DIR, 'umi_bc/'),
+        in_clust = op.join( OUT_DIR, 'bc/'),
+    resources:
+        mem_per_cpu="20gb",
+        cpus="1",
+        time="00:30:00"
+    shell:
+        """
+        {params.script_dir}/read_stats.sh {params.in_clip} {params.in_umi} {params.in_umibc} {params.in_clust} {output.fintab}
+        """

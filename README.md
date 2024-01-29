@@ -14,11 +14,11 @@ Clone repository
 Set up environment/install required packages
 
         cd mpraline
-        conda env create -n mpraline -f mpraline.yml
+        conda env create -n bc_count -f bc_count.yml
 
 Steps to run the pipeline
 
-        conda activate mpraline
+        conda activate bc_count
 
 1. Create an output project directory.
 2. In the subdirectory `sampletab`, create a sample metadata table containing the variables `libname`, `fq_fwd`, `fq_rev`, and `umi_len`. 

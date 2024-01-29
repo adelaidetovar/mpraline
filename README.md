@@ -2,22 +2,27 @@ This pipeline processes barcode count data from MPRA experiments (tk subassembly
 
 Installation
 
-Required packages
+Required software
 - conda
 
-    cd mpraline
-    conda env create -n mpraline -f mpraline.yml
+Clone repository
+
+        cd /home/UNIQNAME/github
+        git clone https://github.com/mpraline.git
 
 
+Set up environment/install required packages
+
+        cd mpraline
+        conda env create -n mpraline -f mpraline.yml
 
 Steps to run the pipeline
 
-    conda activate mpraline
+        conda activate mpraline
 
 1. Create an output project directory.
 2. In the subdirectory `sampletab`, create a sample metadata table containing the variables `libname`, `fq_fwd`, `fq_rev`, and `umi_len`. 
 If your sample names are in sample##_{RNA, DNA} format, you can use the following code to complete required columns `fq_fwd`, `fq_rev`, and `umi_len`.
-
 
        pfx=YYYYMMDD
 

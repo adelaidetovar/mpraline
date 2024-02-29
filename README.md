@@ -33,7 +33,7 @@ If your sample names are in sample##_{RNA, DNA} format, you can use the followin
            -o sampletab/${pfx}.2.txt \
            -t \
            "fq_fwd:/full/path/to/project/in_fq/{{libname}}.r1.fq.gz" \
-           "fq_rev:/full/path/to/project/in_fq/{{libname}}.r2.fq.gz"`
+           "fq_rev:/full/path/to/project/in_fq/{{libname}}.r2.fq.gz"
 
         cat sampletab/${pfx}.2.txt | mlr --tsv put '$umi_len = (sub($libname, "^[^_]+_(DNA)$", "13") == "13") ? "13" : ""' > sampletab/${pfx}.3.txt
    

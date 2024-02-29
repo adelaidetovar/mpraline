@@ -26,6 +26,8 @@ If your sample names are in sample##_{RNA, DNA} format, you can use the followin
 
        pfx=YYYYMMDD
 
+       touch sampletab/${pfx}.txt
+
        muchly addcol \
            -i sampletab/${pfx}.txt \
            -o sampletab/${pfx}.2.txt \

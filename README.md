@@ -28,6 +28,18 @@ If your sample names are in sample##_{RNA, DNA} format, you can use the followin
 
        touch sampletab/${pfx}.txt
 
+       cd in_fq
+
+       prefixes=$(ls *.r[1,2].fq.gz | cut -d. -f1 | sort -u)
+
+       echo "libname" >> ../sampletab/${pfx}.txt
+
+       for prefix in $prefixes; do
+           echo "$prefix" >> ../sampletab/${pfx}.txt
+       done
+
+       cd ..
+
        muchly addcol \
            -i sampletab/${pfx}.txt \
            -o sampletab/${pfx}.2.txt \
@@ -35,9 +47,7 @@ If your sample names are in sample##_{RNA, DNA} format, you can use the followin
            "fq_fwd:/full/path/to/project/in_fq/{{libname}}.r1.fq.gz" \
            "fq_rev:/full/path/to/project/in_fq/{{libname}}.r2.fq.gz"
 
-        cat sampletab/${pfx}.2.txt | mlr --tsv put '$umi_len = (sub($libname, "^[^_]+_(DNA)$", "13") == "13") ? "13" : ""' > sampletab/${pfx}.3.txt
-   
-        cat sampletab/${pfx}.3.txt | mlr -tsv cut -o -f libname,fq_fwd,fq_rev,umi_len > sampletab/${pfx}.input.txt
+        cat sampletab/${pfx}.2.txt | mlr --tsv put '$umi_len = (sub($libname, "^[^_]+_(DNA)$", "13") == "13") ? "13" : ""' > sampletab/${pfx}.input.txt
 
 2. Load R (currently tested with R/4.2.0). Check that your $PATH lists the bin associated with the conda environment first (i.e., `PATH=/home/user/miniconda3/envs/mpraline/bin:$PATH`). If not, make it so or else none of the packages you've installed will work when python is invoked.
 3. If you don't have a server profile (`slurmgl`) created for snakemake, create one with the following command:

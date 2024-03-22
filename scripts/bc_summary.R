@@ -5,20 +5,24 @@ library(data.table)
 parser <- ArgumentParser()
 
 parser$add_argument("-in","--indir", help="Where BCs are stored")
-parser$add_argument("-out", "--outdir", help="Where to save summary table")
+parser$add_argument("-stats", "--statsout", help="Where to save BC stats")
+parser$add_argument("-summ", "--summout", help="Where to save summary BC table")
 
 args <- parser$parse_args()
 
-# prepare BC stats
+###
+# Prepare barcode stats
 
-# make list of all BC count files
-files <- list.files(path=args$indir, pattern="*.txt", full.names=TRUE, recursive=FALSE)
+# convert the input directory argument to a character vector
+files <- strsplit(args$inlist, ",")[[1]]
+
+# initialize values
 topthresh <- midthresh <- lowthresh <- maxbc <- topfrac <- midfrac <- lowfrac <- numeric(length(files))
 
 length(files)
 
 for(i in seq_along(files)) {
-  t <- fread(files[[i]], fill = T)
+  t <- fread(files[i], fill = TRUE)
   ts <- t %>% arrange(desc(V2)) %>% mutate(V2 = as.numeric(V2)) %>% filter(!is.na(V2))
   cfvs <- cumsum(ts$V2)/sum(ts$V2)
   topthresh[i] <- min(which(cfvs >= 0.95))
@@ -30,29 +34,32 @@ for(i in seq_along(files)) {
   lowfrac[i] <- lowthresh[i]/maxbc[i]
 }
 
+# gather stats into summary table
 results <- data.frame(files, maxbc, lowthresh, midthresh, topthresh, lowfrac, midfrac, topfrac)
 results <- results %>%
   mutate(name = str_extract(files, "/(.+?).bc_clust.txt"))
 
-write.table(results, paste0(args$outdir, "bc_stats.txt"), row.names = F, quote = F, sep = "\t")
-
+# write out summary table
+write.table(results, file.path(args$statsout), row.names = FALSE, quote = FALSE, sep = "\t")
 
 # prepare barcode counts
 
 # define a function to merge and fill missing values with 0
-merge_and_fill <- function(x, y, by_var, suffix) {
-  left_join(x, y, by = by_var) %>%
-    mutate(across(ends_with(suffix), ~coalesce(., 0)))
+merge_and_fill <- function(x, y, by_var) {
+  full_join(x, y, by = by_var)
 }
 
 # read in tables
 table_list <- lapply(files, fread)
+table_list <- lapply(table_list, function(x) x[,c(1:2)])
+table_list <- lapply(table_list, function(x) x  %>% rename("barcode" = "V1", "counts" = "V2"))
 
 # Merge the tables
-result <- Reduce(function(x, y) merge_and_fill(x, y, "barcodes", paste0("_sample", match(y, table_list))), table_list)
+result <- Reduce(function(x, y) merge_and_fill(x, y, "barcode"), table_list)
 
 # select columns of interest
-result <- select(result, barcodes, starts_with("counts"))
+colnames(result)[2:length(colnames(result))] <- paste0("sample", seq(1,length(colnames(result))-1))
+result[is.na(result)] <- 0
 
 # Print or save the result
-write.table(result, paste0(args$outdir, "summary_table.txt"), row.names = F, quote = F, sep = "\t")
+write.table(result, file.path(args$summout), row.names = FALSE, quote = FALSE, sep = "\t")
